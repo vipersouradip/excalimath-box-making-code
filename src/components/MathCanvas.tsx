@@ -229,11 +229,13 @@ export const MathCanvas: React.FC<MathCanvasProps> = ({
                   style={{ position: "absolute" }}
                   className={`border-2 border-dashed ${boxColor} rounded-xl`}
                 >
-                  {/* Floating Box Label Tag */}
-                  <div className="absolute -top-6 left-1 bg-emerald-600 text-white font-mono text-[10px] font-semibold px-2 py-0.5 rounded shadow-xs flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
-                    <span>Eq-Box: {labelId}</span>
-                  </div>
+                  {/* Floating Box Label Tag (conditional on toggle) */}
+                  {tunables.showLabels && (
+                    <div className="absolute -top-6 left-1 bg-emerald-600 text-white font-mono text-[10px] font-semibold px-2 py-0.5 rounded shadow-xs flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
+                      <span>Eq-Box: {labelId}</span>
+                    </div>
+                  )}
                 </motion.div>
               );
             })}

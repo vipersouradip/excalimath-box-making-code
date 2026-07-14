@@ -155,6 +155,26 @@ export const TunablePanel: React.FC<TunablePanelProps> = ({
             </div>
           )}
         </div>
+
+        {/* Label Toggle */}
+        <div className="flex flex-col gap-2 mt-1 pt-3 border-t border-slate-100">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-800">Show Equation Labels</span>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                id="toggle-labels"
+                type="checkbox"
+                checked={tunables.showLabels}
+                onChange={(e) => handleSliderChange("showLabels", e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-8 h-4.5 bg-slate-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+          </div>
+          <span className="text-[10px] text-slate-400">
+            Show the &quot;Eq-Box&quot; tags on top of equation boundary boxes on the canvas.
+          </span>
+        </div>
       </div>
 
       {/* Preset Test Suite Picker */}

@@ -110,7 +110,9 @@ export function evaluateMerge(
   boxB: Box,
   allStrokes: Stroke[],
   tunables: Tunables,
-  medianH: number
+  medianH: number,
+  currentBoxes?: Box[],
+  usedBridgingStrokeIds?: Set<string>
 ): EvaluationResult {
   const logs: string[] = [];
   const idA = boxA.id.replace("box_", "").slice(0, 5);
@@ -169,6 +171,16 @@ export function evaluateMerge(
     const widthA = boxA.maxX - boxA.minX;
     const widthB = boxB.maxX - boxB.minX;
 
+    // Skip if this stroke is already used as a bridging stroke
+    if (usedBridgingStrokeIds && usedBridgingStrokeIds.has(stroke.id)) {
+      continue;
+    }
+
+    // A bridging stroke must NOT already be a member of either boxA or boxB
+    if (boxA.strokeIds.includes(stroke.id) || boxB.strokeIds.includes(stroke.id)) {
+      continue;
+    }
+
     // Condition 1: Wider than both
     if (sWidth <= widthA || sWidth <= widthB) {
       continue;
@@ -192,6 +204,61 @@ export function evaluateMerge(
 
     if (!isBetween) {
       continue;
+    }
+
+    // Condition 3.5: Immediate adjacency check for fractions (maximum of 3 boxes merging)
+    if (currentBoxes && currentBoxes.length > 0) {
+      const boxAbove = midA < midS ? boxA : boxB;
+      const boxBelow = midA < midS ? boxB : boxA;
+
+      // Filter other boxes that do not contain the bridging stroke
+      const otherBoxes = currentBoxes.filter(
+        (c) => !c.strokeIds.includes(stroke.id)
+      );
+
+      // Only care about boxes overlapping horizontally with the bar
+      const columnBoxes = otherBoxes.filter(
+        (c) => getHorizontalGap(c, stroke) === 0
+      );
+
+      const aboveBoxes = columnBoxes.filter((c) => {
+        const midC = (c.minY + c.maxY) / 2;
+        return midC < midS;
+      });
+
+      const belowBoxes = columnBoxes.filter((c) => {
+        const midC = (c.minY + c.maxY) / 2;
+        return midC > midS;
+      });
+
+      const sortedAbove = [...aboveBoxes].sort((x, y) => {
+        const midX = (x.minY + x.maxY) / 2;
+        const midY = (y.minY + y.maxY) / 2;
+        return midY - midX; // descending, so largest mid value is first (closest to S)
+      });
+
+      const sortedBelow = [...belowBoxes].sort((x, y) => {
+        const midX = (x.minY + x.maxY) / 2;
+        const midY = (y.minY + y.maxY) / 2;
+        return midX - midY; // ascending, so smallest mid value is first (closest to S)
+      });
+
+      const closestAbove = sortedAbove[0];
+      const closestBelow = sortedBelow[0];
+
+      if (!closestAbove || !closestBelow) {
+        continue;
+      }
+
+      const isImmediate =
+        boxAbove.id === closestAbove.id && boxBelow.id === closestBelow.id;
+
+      if (!isImmediate) {
+        logs.push(
+          ` - Stroke ${sId} satisfies width and span, but FAILS immediate adjacency check. Closest above = ${closestAbove.id.replace("box_", "").slice(0, 5)}, Closest below = ${closestBelow.id.replace("box_", "").slice(0, 5)}.`
+        );
+        continue;
+      }
     }
 
     // Condition 4: Proximity guard (tunable)
@@ -299,6 +366,7 @@ export function rebuildAllBoxes(
   let mergedAny = true;
   let iterations = 0;
   const maxIterations = 100; // safety limit
+  const usedBridgingStrokeIds = new Set<string>();
 
   while (mergedAny && iterations < maxIterations) {
     mergedAny = false;
@@ -323,7 +391,9 @@ export function rebuildAllBoxes(
           currentBoxes[j],
           strokes,
           tunables,
-          medianH
+          medianH,
+          currentBoxes,
+          usedBridgingStrokeIds
         );
         
         // Expose logs of evaluation
@@ -341,10 +411,26 @@ export function rebuildAllBoxes(
 
     if (pairToMerge) {
       const [i, j, evalResult] = pairToMerge;
-      const union = getUnionBox(currentBoxes[i], currentBoxes[j]);
       
-      // Remove merged boxes and push the new union back to the pool
-      currentBoxes = currentBoxes.filter((_, idx) => idx !== i && idx !== j);
+      let union: Box;
+      if (evalResult.vbPassed && evalResult.bridgingStrokeId) {
+        usedBridgingStrokeIds.add(evalResult.bridgingStrokeId);
+        const sId = evalResult.bridgingStrokeId;
+        const boxSIdx = currentBoxes.findIndex((b) => b.strokeIds.includes(sId));
+        if (boxSIdx !== -1 && boxSIdx !== i && boxSIdx !== j) {
+          const boxS = currentBoxes[boxSIdx];
+          const tempUnion = getUnionBox(currentBoxes[i], currentBoxes[j]);
+          union = getUnionBox(tempUnion, boxS);
+          currentBoxes = currentBoxes.filter((_, idx) => idx !== i && idx !== j && idx !== boxSIdx);
+        } else {
+          union = getUnionBox(currentBoxes[i], currentBoxes[j]);
+          currentBoxes = currentBoxes.filter((_, idx) => idx !== i && idx !== j);
+        }
+      } else {
+        union = getUnionBox(currentBoxes[i], currentBoxes[j]);
+        currentBoxes = currentBoxes.filter((_, idx) => idx !== i && idx !== j);
+      }
+
       currentBoxes.push(union);
       mergedAny = true;
     }
@@ -405,6 +491,8 @@ export function handleNewStroke(
   // Run fixpoint evaluation loop only on activePool
   let mergedAny = true;
   let iterations = 0;
+  const usedBridgingStrokeIds = new Set<string>();
+
   while (mergedAny && iterations < 100) {
     mergedAny = false;
     iterations++;
@@ -426,7 +514,9 @@ export function handleNewStroke(
           activePool[j],
           allStrokes,
           tunables,
-          currentMedianH
+          currentMedianH,
+          [...activePool, ...untouchedPool],
+          usedBridgingStrokeIds
         );
 
         if (onLogPredicateEvaluation && evalResult.logs.length > 0) {
@@ -442,9 +532,35 @@ export function handleNewStroke(
     }
 
     if (pairToMerge) {
-      const [i, j] = pairToMerge;
-      const union = getUnionBox(activePool[i], activePool[j]);
-      activePool = activePool.filter((_, idx) => idx !== i && idx !== j);
+      const [i, j, evalResult] = pairToMerge;
+      let union: Box;
+      if (evalResult.vbPassed && evalResult.bridgingStrokeId) {
+        usedBridgingStrokeIds.add(evalResult.bridgingStrokeId);
+        const sId = evalResult.bridgingStrokeId;
+        const boxSIdx = activePool.findIndex((b) => b.strokeIds.includes(sId));
+        if (boxSIdx !== -1 && boxSIdx !== i && boxSIdx !== j) {
+          const boxS = activePool[boxSIdx];
+          const tempUnion = getUnionBox(activePool[i], activePool[j]);
+          union = getUnionBox(tempUnion, boxS);
+          activePool = activePool.filter((_, idx) => idx !== i && idx !== j && idx !== boxSIdx);
+        } else {
+          // If boxS is in untouchedPool, we need to pull it to activePool and merge
+          const untouchedSIdx = untouchedPool.findIndex((b) => b.strokeIds.includes(sId));
+          if (untouchedSIdx !== -1) {
+            const boxS = untouchedPool[untouchedSIdx];
+            const tempUnion = getUnionBox(activePool[i], activePool[j]);
+            union = getUnionBox(tempUnion, boxS);
+            activePool = activePool.filter((_, idx) => idx !== i && idx !== j);
+            untouchedPool = untouchedPool.filter((_, idx) => idx !== untouchedSIdx);
+          } else {
+            union = getUnionBox(activePool[i], activePool[j]);
+            activePool = activePool.filter((_, idx) => idx !== i && idx !== j);
+          }
+        }
+      } else {
+        union = getUnionBox(activePool[i], activePool[j]);
+        activePool = activePool.filter((_, idx) => idx !== i && idx !== j);
+      }
       activePool.push(union);
       mergedAny = true;
     }

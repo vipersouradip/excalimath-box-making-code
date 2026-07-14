@@ -19,6 +19,7 @@ export default function App() {
     spanTolerance: 8,
     vbProximityMultiplier: 1.5,
     vbGuardEnabled: true,
+    showLabels: false,
   });
 
   const [activePresetId, setActivePresetId] = useState<string | null>(null);

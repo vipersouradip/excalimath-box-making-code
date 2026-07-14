@@ -33,6 +33,7 @@ export interface Tunables {
   spanTolerance: number;            // px slack on V_b "spans both" [0-50], default 8
   vbProximityMultiplier: number;    // V_b guard: max vertical gap multiplier [0-5], default 1.5
   vbGuardEnabled: boolean;          // Toggle V_b proximity guard
+  showLabels: boolean;              // Toggle display of box labels on the canvas
 }
 
 export interface LogEntry {
